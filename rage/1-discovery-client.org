@@ -1,0 +1,198 @@
+* Run identity
+- Consumed issue :: #1
+- Branch :: =rage/1-discovery-client=
+- RAGE start commit :: =14951c39f0e6b2be28ac2ed560013beda9bab1ef=
+- Control plane :: Auto-RAGE (operator decision recorded in AGENTS.md, 2026-09-08)
+
+* Analyze
+** Verified contract facts (evidence: starintel-server source, read 2026-09-08)
+- =cli/http-contract.lisp= defines 17 operations; =client-manifest-document =
+  emits ={"schema":"starintel-client-manifest-v1","openapi":"3.1.2","operations":[...]=
+  with per-operation keys: =operation_id=, =client_name=, =method=, =path=
+  (template uses =:param= placeholders), =openapi_path= (= {param}= form),
+  =authority= (=public|authenticated|administrator|bootstrap=), =scopes=,
+  =path_parameters=, =request_schema= (null when absent), =responses=
+  (=status=, =description=, =schema=), =idempotency= (null in current data).
+- =openapi-document = emits OpenAPI =3.1.2= with =operationId = client_name=,
+  =x-starintel-authority=, =x-starintel-scopes=, =security= (bearerAuth except
+  public/bootstrap), path =parameters= plus =X-Star-Bootstrap-Secret= for the
+  bootstrap operation, =requestBody= when =request-schema= present.
+- Contracted operations: =health.get= (GET /health), =server.get= (GET /),
+  =schema.openapi.get=, =schema.client-manifest.get=, =auth.login=,
+  =auth.bootstrap=, =auth.context.get=, =auth.users.create=,
+  =auth.users.list=, =auth.users.password.reset=, =auth.password.change=,
+  =auth.credentials.create=, =auth.credentials.list=,
+  =auth.credentials.rotate=, =auth.credentials.revoke=,
+  =auth.credentials.disable=. Document ops are NOT in the manifest
+  (blocked by starintel-server#5); search/stats handlers exist in
+  =http-contract-routes.lisp= but are NOT manifest operations, so the client
+  must not expose them.
+- Error envelope (http-boundary-core.lisp): ={"msg","status","correlation_id"}=
+  plus optional =code= and =info=; error status/code pairs from
+  =signal-http-input-error= and boundary fallbacks (400/401/403/404/409/422,
+  504 request_timeout, 500 internal_error, 503 auth store unavailable).
+- Correlation (http-auth.lisp): server honors client =X-Correlation-ID= only
+  when bounded: length 1..128, chars alphanumeric or =-=, =_=, =.=, =:=;
+  otherwise mints its own ULID. Response always carries =X-Correlation-ID=
+  header and envelopes carry =correlation_id=. =X-Request-Timeout-Ms= is
+  parsed as a positive integer and clamped.
+- Discovery routes =/openapi.json= and =/client-manifest.json= are anonymous
+  (=star:*auth-public-paths*=).
+** Inference
+- Manifest =path= (=:param=) is the server's route-matching template
+  (ningle syntax); =openapi_path= is the OpenAPI projection (= {param}=).
+  URL building must render =path= and validate against =path_parameters=.
+- Success envelopes embed =correlation_id= (login/user/credential schemas);
+  health returns a status-msg envelope; generic 200 payloads are free-form
+  objects per =generic-object-schema=.
+** Unknowns
+- Exact health response body beyond the status-msg envelope (schema is
+  generic object) -> client treats unknown payloads opaquely. No endpoint
+  behavior is fabricated; the mock serves shapes straight from the contract
+  source.
+
+* Design
+** Layout (src/starintel_client/)
+- =_errors.py=: =StarIntelClientError= base; =StarIntelApiError=
+  (=status_code=, =msg=, =correlation_id=, =code=, optional =info=) built by
+  =error_from_payload()= (tolerates non-JSON/missing fields);
+  =ManifestError=; =UnknownOperationError=.
+- =_correlation.py=: =new_correlation_id()= (time-ordered hex, charset-valid
+  per server bounds) and =validate_correlation_id()= mirroring the server's
+  1..128 / alnum + =-_.:= rule.
+- =_manifest.py=: dataclasses =ManifestResponse=, =ManifestOperation=,
+  =ClientManifest=; =parse_client_manifest()= strict parsing (unknown schema
+  string, missing keys, bad method, non-object entries -> ManifestError);
+  legacy-route rejection at parse time via a forbidden-path check on both
+  =path= and =openapi_path= (no legacy literal appears under src/: the
+  matcher compares normalized templates against parameterized patterns);
+  =render_path()= substitutes =:name= placeholders with quoted values.
+- =_openapi.py=: =OpenApiOperation=, =OpenApiDocument=;
+  =parse_openapi_document()=; =cross_check()= verifies every manifest
+  operation appears in the OpenAPI document (=openapi_path= + method +
+  =operationId = client_name=) -> ManifestError on drift.
+- =_transport.py=: =TransportResponse= (status, headers, content);
+  =AsyncTransport= wraps =httpx.AsyncClient=, =SyncTransport= wraps
+  =httpx.Client=; bounded default timeouts (connect 5s / read 30s / write
+  30s / pool 5s), caller timeout clamped to <=120s; conservative retry:
+  idempotent GETs only, on transport errors and 502/503/504, bounded
+  attempts (2 retries, 50ms/200ms backoff), never on other statuses (4xx
+  never retried); retry backoff injectable for hermetic tests.
+- =_client.py=: =StarIntelClient= (sync facade) + =AsyncStarIntelClient=
+  (async core); shared pure helpers for headers/request building/response
+  parsing; =discover()= fetches + parses both registry documents, builds the
+  operation table; =from_registry()= for preloaded payloads (hermetic);
+  generic =call(operation_id, path_params, json)= is the manifest-driven
+  dispatch (new server operations become callable automatically); typed
+  convenience methods ONLY for the 16 currently-contracted operations;
+  Bearer auth when =api_key= set; per-request =X-Correlation-ID=
+  (generated once per logical request, reused across retries), echo captured
+  from response header with body =correlation_id= fallback.
+- =_models.py=: =UserMetadata=, =CredentialMetadata=, =LoginResult=,
+  =CredentialSecret=, =UserStatus=, =CredentialStatus= dataclasses parsed
+  from the contract-pinned response schemas; everything else stays =Any=.
+** Rejected alternatives
+- Hardcoded route table in the client -> violates AGENTS.md rule 1; the
+  manifest is the single source of routes.
+- Codegen (writing .py files from the manifest at build time) -> build-time
+  magic, poor testability; runtime manifest-driven dispatch + thin typed
+  wrappers is smaller and keeps discovery live.
+- Retrying non-idempotent verbs -> duplicates credential/user mutations;
+  rejected.
+- Pydantic models -> extra dependency; stdlib dataclasses suffice (task 3).
+** Acceptance criteria / gates
+1. =pytest= green (hermetic; live tests skip without =STARINTEL_LIVE_TEST=1=).
+2. =ruff check .= clean; =mypy= strict clean.
+3. Anti-legacy regression test fails when any forbidden route literal
+   appears under src/ (proven red with a temporary fixture file).
+4. Typed methods exist exactly for the 16 currently-contracted operations;
+   generic =call= covers future manifest additions without code changes.
+5. Gates recorded via =prolog-verify observe= at the candidate HEAD.
+
+* Adversarial review
+- Retry/correlation interaction: retried attempt reuses the same
+  =X-Correlation-ID= (one logical request = one correlation id) -> accepted.
+- Compromised/misconfigured manifest steering the client at legacy routes:
+  parse-time rejection kills the operation set before any request can be
+  built -> accepted; generic =call= resolves operations only from the
+  validated table.
+- Bootstrap secret leakage: passed per-call as a header, never stored on the
+  client; api_key stored but never logged (client performs no header/body
+  logging at all) -> accepted.
+- 204/no-content and non-JSON success bodies: =data=None= / raw bytes
+  fallback without raising -> accepted.
+- Error body missing/invalid JSON: =StarIntelApiError= built with
+  msg fallback derived from status code, =code=None= -> accepted.
+- Timeout policy: bounded constants, caller value clamped -> prevents
+  unbounded hangs -> accepted.
+- mypy strict on async+sync duplication: shared pure helpers carry the
+  logic; both facades stay thin -> accepted.
+- Manifest/openapi drift (operation present in one, absent/renamed in the
+  other): cross-check raises -> accepted.
+- Legacy literals in tests: the forbidden strings must exist somewhere to
+  scan for; they are confined to =tests/test_no_legacy_routes.py= scanning
+  src/ only, and the scan itself normalizes =:param=/={param}= so template
+  variants cannot slip through -> accepted.
+
+* Decision (Auto-RAGE worker decision, 2026-09-08)
+The design above is accepted for realization. TDD order: (1) registry
+parsing + legacy rejection + correlation helpers (pure logic, red first),
+(2) transport retry/timeout behavior, (3) sync + async clients against the
+stdlib mock server, (4) anti-legacy scan (proven red), (5) live opt-in
+tests. Gates: pytest, ruff, mypy strict at the exact candidate HEAD,
+recorded via prolog-verify observe. No legacy route strings anywhere under
+src/ or docs; document operations remain unimplemented pending
+starintel-server#5 (manifest-driven =call= covers them automatically once
+contracted).
+
+* Realize
+** TDD evidence
+- Red 1: =tests/test_registry.py= failed with ModuleNotFoundError before
+  =_correlation.py=, =_errors.py=, =_manifest.py=, =_openapi.py= existed.
+- Two defects found by the tests and fixed: double-bracket regex bug in
+  placeholder extraction (openapi brace form never matched), and correlation
+  ids exceeding the server's 128-char shape (time_ns is 16 hex digits; now
+  low 48 bits + 16 random hex = 28 chars).
+- Red 2: transport/client suites failed against the missing modules, then
+  against a mock-server defect (request body consumed twice by the recorder,
+  blocking the handler thread); fixed in the mock, not in the client.
+- Anti-legacy scan proven red by planting a forbidden route literal under
+  src/ (test failed listing the file), then green after removal.
+** Registry drift evidence (live server, read-only, 2026-09-08)
+- The live server at 127.0.0.1:5000 currently contracts 19 operations; the
+  server checkout used for contract facts documents 16. Additional live
+  operations: =public.search.get= (GET /api/v1/search), =stats.get=
+  (GET /api/v1/stats), =targets.create= (POST /api/v1/targets).
+- The client adapted without code changes: =discover()= + =cross_check()=
+  accepted the live registry; generic =call("stats.get")= returned 200; and
+  =call("public.search.get")= without =q= raised the normalized
+  =StarIntelApiError(400, code=missing_query_parameter)= with correlation id.
+- Typed convenience wrappers remain limited to the operations named by issue
+  #1 (health, metadata, login/context, users, credentials, discovery).
+  Search/stats/targets wrappers are NOT added: their request/response
+  semantics are not in the documented contract facts available here, and
+  endpoint behavior must not be fabricated. They remain fully callable via
+  the manifest-driven =call()=. Document operations remain blocked on
+  starintel-server#5.
+** Gate results (commands recorded verbatim; machine evidence follows via prolog-verify observe)
+- =python -m pytest= :: 84 passed, 2 skipped (live opt-in), exit 0
+- =STARINTEL_LIVE_TEST=1 python -m pytest tests/test_live.py= :: 2 passed,
+  exit 0 (real discovery + health at 127.0.0.1:5000)
+- =ruff check .= :: All checks passed, exit 0
+- =mypy= :: Success: no issues found in 8 source files, exit 0
+
+* Verification
+- Machine evidence: =.prolog/facts.kb= (kept local) records =exit(0)=
+  observations for =.venv/bin/python -m pytest=, =.venv/bin/ruff check .=,
+  and =.venv/bin/mypy= at the candidate HEAD of this commit, bound to the
+  HEAD SHA and worktree digest.
+- =prolog-verify check= :: verification passed, exit 0. Its derived
+  invariant requires all three gate commands green at the current
+  HEAD/digest; the anti-legacy guard, registry cross-check, correlation
+  bounds, and retry policy invariants are enforced by the test suite the
+  pytest observation covers.
+- Live opt-in evidence: =STARINTEL_LIVE_TEST=1= run against the real server
+  (discovery, health, error-envelope normalization on 401/400) recorded in
+  the Realize section above.
+
+
