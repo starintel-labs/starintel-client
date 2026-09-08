@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "starintel-client"
+version = "0.1.0"
+description = "Reusable StarIntel HTTP API client: contract-registry-driven, no legacy routes"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "AGPL-3.0-or-later" }
+authors = [{ name = "lost-rob0t" }]
+dependencies = [
+  "httpx[brotli,http2]>=0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.14.1",
+  "pytest>=8.3.4",
+  "pytest-asyncio>=0.25.2",
+  "ruff>=0.9.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/starintel_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["starintel_client"]
