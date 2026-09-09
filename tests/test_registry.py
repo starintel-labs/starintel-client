@@ -327,3 +327,4 @@ def test_unknown_operation_error_is_starintel_error() -> None:
     assert issubclass(UnknownOperationError, StarIntelClientError)
     assert issubclass(ManifestError, StarIntelClientError)
     assert issubclass(StarIntelApiError, StarIntelClientError)
+

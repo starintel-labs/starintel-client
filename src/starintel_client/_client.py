@@ -718,3 +718,29 @@ class AsyncStarIntelClient(_RegistryMixin):
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def open_document_client(
+    *,
+    base_url: str = DEFAULT_BASE_URL,
+    api_key: str | None = None,
+    **kwargs: Any,
+) -> AsyncStarIntelClient:
+    """Build an async client after verifying the registry contracts documents.
+
+    Performs a synchronous capability probe: fetches the client manifest and
+    requires the ``documents.create`` operation. Raises :class:`ManifestError`
+    when the server does not contract document operations yet (tracked as
+    starintel-labs/starintel-server#5); legacy routes are never used.
+    """
+    probe = StarIntelClient(base_url, api_key=api_key, **kwargs)
+    manifest = probe.discover()
+    contracted = {operation.operation_id for operation in manifest.operations}
+    if "documents.create" not in contracted:
+        raise ManifestError(
+            "the server contract registry does not expose document operations "
+            "(documents.create missing); tracked as "
+            "starintel-labs/starintel-server#5; legacy routes are not a "
+            "permitted fallback"
+        )
+    return AsyncStarIntelClient(base_url, api_key=api_key, **kwargs)

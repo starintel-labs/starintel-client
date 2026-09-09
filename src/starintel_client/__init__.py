@@ -10,6 +10,7 @@ from ._client import (
     ApiResponse,
     AsyncStarIntelClient,
     StarIntelClient,
+    open_document_client,
 )
 from ._correlation import new_correlation_id, validate_correlation_id
 from ._errors import (
@@ -70,6 +71,7 @@ __all__ = [
     "UserStatus",
     "cross_check",
     "new_correlation_id",
+    "open_document_client",
     "parse_client_manifest",
     "parse_openapi_document",
     "render_path",
