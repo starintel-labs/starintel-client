@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from ._correlation import new_correlation_id, validate_correlation_id
-from ._errors import UnknownOperationError
+from ._errors import ManifestError, UnknownOperationError
 from ._manifest import (
     MANIFEST_SCHEMA,
     ClientManifest,
