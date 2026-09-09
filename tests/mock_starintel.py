@@ -88,6 +88,27 @@ def _credential(credential_id: str, owner: str, scopes: list[str]) -> dict[str, 
     }
 
 
+def _document_ops() -> list[dict[str, Any]]:
+    return [
+        _op(
+            "documents.create",
+            "document-create",
+            "post",
+            "/api/v1/documents",
+            "authenticated",
+            scopes=["documents:write"],
+        ),
+        _op(
+            "documents.bulk.create",
+            "document-bulk-create",
+            "post",
+            "/api/v1/documents/bulk",
+            "authenticated",
+            scopes=["documents:bulk"],
+        ),
+    ]
+
+
 def fixture_manifest() -> dict[str, Any]:
     """The 16 currently-contracted operations, exactly as the server emits."""
     operations = [
@@ -462,10 +483,24 @@ class MockStarIntelHandler(http.server.BaseHTTPRequestHandler):
             )
             return
         if path == "/openapi.json":
-            self._send_json(200, fixture_openapi(), cid)
+            manifest = fixture_manifest()
+            if getattr(self.server, "serve_document_ops", False):
+                manifest = dict(manifest)
+                manifest["operations"] = [
+                    *(manifest["operations"]),
+                    *_document_ops(),
+                ]
+            self._send_json(200, fixture_openapi(manifest), cid)
             return
         if path == "/client-manifest.json":
-            self._send_json(200, fixture_manifest(), cid)
+            manifest = fixture_manifest()
+            if getattr(self.server, "serve_document_ops", False):
+                manifest = dict(manifest)
+                manifest["operations"] = [
+                    *(manifest["operations"]),
+                    *_document_ops(),
+                ]
+            self._send_json(200, manifest, cid)
             return
         if path == "/auth/context":
             if not self._bearer():
@@ -650,6 +685,19 @@ class MockStarIntelServer(http.server.ThreadingHTTPServer):
         self.requests: list[dict[str, Any]] = []
         self.attempt_counts: dict[tuple[str, str], int] = {}
         self.cid_counter = [0]
+        self.serve_document_ops = False
+
+    @property
+    def base_url(self) -> str:
+        host, port = self.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def enable_document_ops(self) -> None:
+        """Serve a manifest that includes the registry document operations."""
+        self.serve_document_ops = True
+
+    def disable_document_ops(self) -> None:
+        self.serve_document_ops = False
 
 
 def make_server() -> tuple[MockStarIntelServer, str]:
