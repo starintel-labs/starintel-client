@@ -81,8 +81,11 @@ class CredentialMetadata:
     def from_payload(cls, payload: Any) -> CredentialMetadata:
         if not isinstance(payload, dict):
             raise ValueError("credential metadata must be a JSON object")
+        credential_id = payload.get("credential_id")
+        if not isinstance(credential_id, str):
+            credential_id = _require_str(payload, "id")
         return cls(
-            id=_require_str(payload, "id"),
+            id=credential_id,
             owner=_require_str(payload, "owner"),
             principal_type=_require_str(payload, "principal_type"),
             scopes=_require_str_list(payload, "scopes"),

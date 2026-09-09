@@ -236,6 +236,34 @@ class StarIntelClient(_RegistryMixin):
         )
         return _interpret(response.status_code, response.headers, response.content)
 
+    def publish_document(
+        self,
+        document: dict[str, Any],
+        *,
+        correlation_id: str | None = None,
+    ) -> ApiResponse:
+        """Ingest one canonical document via ``documents.create``."""
+        return self.call(
+            "documents.create", json=document, correlation_id=correlation_id
+        )
+
+    def publish_documents_bulk(
+        self,
+        documents: list[dict[str, Any]],
+        *,
+        correlation_id: str | None = None,
+    ) -> ApiResponse:
+        """Ingest a bounded batch via ``documents.bulk.create``.
+
+        The server answers with an aggregate envelope (inline:
+        ``total``/``succeeded``/``failed``/``correlation_id``; or an async
+        job acceptance with ``job_id``/``status_url``). Per-document
+        attribution is not part of the wire contract.
+        """
+        return self.call(
+            "documents.bulk.create", json=documents, correlation_id=correlation_id
+        )
+
     # -- typed convenience methods (currently-contracted operations) --------
 
     def health(self, *, correlation_id: str | None = None) -> ApiResponse:
@@ -498,6 +526,28 @@ class AsyncStarIntelClient(_RegistryMixin):
             json_body=json,
         )
         return _interpret(response.status_code, response.headers, response.content)
+
+    async def publish_document(
+        self,
+        document: dict[str, Any],
+        *,
+        correlation_id: str | None = None,
+    ) -> ApiResponse:
+        """Ingest one canonical document via ``documents.create``."""
+        return await self.call(
+            "documents.create", json=document, correlation_id=correlation_id
+        )
+
+    async def publish_documents_bulk(
+        self,
+        documents: list[dict[str, Any]],
+        *,
+        correlation_id: str | None = None,
+    ) -> ApiResponse:
+        """Ingest a bounded batch via ``documents.bulk.create`` (aggregate envelope)."""
+        return await self.call(
+            "documents.bulk.create", json=documents, correlation_id=correlation_id
+        )
 
     async def health(self, *, correlation_id: str | None = None) -> ApiResponse:
         return await self.call("health.get", correlation_id=correlation_id)
