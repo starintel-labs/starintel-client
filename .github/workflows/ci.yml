@@ -1,0 +1,33 @@
+name: Client checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install client and test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Run hermetic tests
+        run: python -m pytest -q
+      - name: Lint
+        run: python -m ruff check .
+      - name: Check types
+        run: python -m mypy
+      - name: Build wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .
