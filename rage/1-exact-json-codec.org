@@ -1,0 +1,35 @@
+#+title: Exact JSON transport boundary
+
+* Scope
+GitHub issue: https://github.com/starintel-labs/starintel-client/issues/1
+Base: 2d886d257b42d5769b2a6002c4aa9db5d783d2c6, verified identical to the
+published GitHub main. Changes are scoped to exact JSON transport and its gates.
+
+* Analyze
+The transport used HTTPX's standard JSON encoder and decoder. Decimal/raw exact
+numbers could not be sent, and fractional response/error values were rounded.
+The regression suite first demonstrated five precision failures.
+
+* Design
+Reuse the public canonical SDK codec at the shared transport boundary. Encode
+UTF-8 request bytes once before retry, preserve caller headers, and decode success
+and normalized error payloads through the same exact parser. Pin SDK commit
+6aa8051dc7ea560943a60a25e1d600467f2778bc.
+
+* Adversarial review
+Cover sync/async requests, error metadata, a long fractional value, extreme raw
+exponents, large integers, low Decimal context precision, Unicode, invalid and
+nonfinite values, false/zero/empty bodies, absent bodies, and caller content type.
+Full-suite tests caught header-case changes; preserving supplied header spelling
+resolved those regressions without weakening assertions.
+
+* Decision
+Keep HTTPX as the only HTTP implementation and the canonical SDK as the only
+exact JSON implementation. Add no actor monkeypatch or private codec API.
+
+* Realize
+Validation: full hermetic pytest suite, Ruff, strict mypy, and wheel build.
+GitHub CI repeats the checks on Python 3.12 and 3.13. Live server tests remain
+explicitly opt-in and are not represented as passing by a hermetic run.
+The repository's prolog-verify and RAGE initialization commands were unavailable
+in this environment; these observations were not reported as tool-certified.

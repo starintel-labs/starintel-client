@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from starintel_canonical import parse_json, stringify_json
 
 from ._errors import StarIntelConnectionError, error_from_payload
 
@@ -90,7 +91,20 @@ class _RequestPlan:
     method: str
     path: str
     headers: Mapping[str, str] = field(default_factory=dict)
-    json_body: Any = None
+    content: bytes | None = None
+
+
+def _request_plan(
+    method: str, path: str, headers: Mapping[str, str] | None, json_body: Any
+) -> _RequestPlan:
+    """Encode once before HTTP/retries, preserving exact public SDK numbers."""
+    request_headers = dict(headers or {})
+    content = None
+    if json_body is not None:
+        content = stringify_json(json_body).encode("utf-8")
+        if not any(name.lower() == "content-type" for name in request_headers):
+            request_headers["Content-Type"] = "application/json"
+    return _RequestPlan(method, path, request_headers, content)
 
 
 def _raise_for_status(response: TransportResponse) -> None:
@@ -99,9 +113,7 @@ def _raise_for_status(response: TransportResponse) -> None:
     payload: Any = None
     if response.content:
         try:
-            payload = httpx.Response(
-                response.status_code, content=response.content
-            ).json()
+            payload = parse_json(response.content)
         except ValueError:
             payload = None
     raise error_from_payload(response.status_code, payload)
@@ -138,9 +150,7 @@ class SyncTransport:
         headers: Mapping[str, str] | None = None,
         json_body: Any = None,
     ) -> TransportResponse:
-        plan = _RequestPlan(
-            method=method, path=path, headers=dict(headers or {}), json_body=json_body
-        )
+        plan = _request_plan(method, path, headers, json_body)
         last_transport_error: Exception | None = None
         for attempt in range(self._retry.max_retries + 1):
             try:
@@ -148,7 +158,7 @@ class SyncTransport:
                     plan.method,
                     plan.path,
                     headers=dict(plan.headers),
-                    json=plan.json_body,
+                    content=plan.content,
                 )
             except httpx.TransportError as error:
                 last_transport_error = error
@@ -207,9 +217,7 @@ class AsyncTransport:
         headers: Mapping[str, str] | None = None,
         json_body: Any = None,
     ) -> TransportResponse:
-        plan = _RequestPlan(
-            method=method, path=path, headers=dict(headers or {}), json_body=json_body
-        )
+        plan = _request_plan(method, path, headers, json_body)
         last_transport_error: Exception | None = None
         for attempt in range(self._retry.max_retries + 1):
             try:
@@ -217,7 +225,7 @@ class AsyncTransport:
                     plan.method,
                     plan.path,
                     headers=dict(plan.headers),
-                    json=plan.json_body,
+                    content=plan.content,
                 )
             except httpx.TransportError as error:
                 last_transport_error = error
@@ -252,6 +260,6 @@ def parse_json_content(content: bytes) -> Any:
     if not content:
         return None
     try:
-        return httpx.Response(200, content=content).json()
+        return parse_json(content)
     except ValueError:
         return content.decode(errors="replace")

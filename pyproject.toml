@@ -12,6 +12,7 @@ license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "lost-rob0t" }]
 dependencies = [
   "httpx[brotli,http2]>=0.28.1",
+  "starintel_doc @ git+https://github.com/lost-rob0t/starintel-doc.git@6aa8051dc7ea560943a60a25e1d600467f2778bc",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +22,9 @@ dev = [
   "pytest-asyncio>=0.25.2",
   "ruff>=0.9.3",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/starintel_client"]
