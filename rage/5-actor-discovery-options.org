@@ -41,3 +41,16 @@ Verified in current source:
 * Decision (Auto-RAGE)
 Implement the design above; smallest slice, TDD. Blocked remainder
 (server-side options advertisement) tracked in starintel-server#40.
+
+* Realize + verification (2026-11-04)
+- RED: tests/test_actors.py collected against missing starintel_client._actors.
+- GREEN: _actors.py models + parse_actor_registry; list_actors() on sync and
+  async clients (contract dispatch, no hardcoded routes); mock actors.list
+  fixture; README section.
+- Exact-head gates at fee94d3 (prolog-verify observed): pytest 125 passed /
+  2 skipped; ruff clean; mypy (CI package scope) clean. Forgejo CI
+  "Client checks / Python 3.12": success at fee94d3.
+- Pre-existing (on main, out of scope): 4 mypy errors under `mypy src tests`
+  in tests/; CI scope (`python -m mypy`, packages=starintel_client) is clean.
+- Merged: PR #6 -> main (issue #5 closes). Blocked remainder (server-side
+  options advertisement) tracked as starintel-server#40.
