@@ -5,6 +5,14 @@ payload models. Routes are never hardcoded; they come from the server's
 contract registry documents.
 """
 
+from ._actors import (
+    ACTOR_REGISTRY_SCHEMA,
+    ActorContract,
+    ActorDescription,
+    ActorOption,
+    ActorRegistry,
+    parse_actor_registry,
+)
 from ._client import (
     DEFAULT_BASE_URL,
     ApiResponse,
@@ -46,6 +54,11 @@ from ._transport import AsyncTransport, RetryPolicy, SyncTransport
 __version__ = "0.1.0"
 
 __all__ = [
+    "ACTOR_REGISTRY_SCHEMA",
+    "ActorContract",
+    "ActorDescription",
+    "ActorOption",
+    "ActorRegistry",
     "ApiResponse",
     "AsyncStarIntelClient",
     "AsyncTransport",
@@ -72,6 +85,7 @@ __all__ = [
     "cross_check",
     "new_correlation_id",
     "open_document_client",
+    "parse_actor_registry",
     "parse_client_manifest",
     "parse_openapi_document",
     "render_path",

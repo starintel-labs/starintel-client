@@ -109,6 +109,88 @@ def _document_ops() -> list[dict[str, Any]]:
     ]
 
 
+def _actor_ops() -> list[dict[str, Any]]:
+    return [
+        _op(
+            "actors.list",
+            "actors",
+            "get",
+            "/v1/actors",
+            "authenticated",
+            scopes=["actors:read"],
+        ),
+    ]
+
+
+def fixture_actor_registry() -> dict[str, Any]:
+    """The ``starintel-actor-registry-v1`` envelope the server emits."""
+    actors = [
+        {
+            "resourceUri": "star://actor/starintel-labs/reddit",
+            "resourceKind": "actor",
+            "semantic": {"name": "reddit", "version": "1.2.0", "digest": "sha256:abc"},
+            "accepts": {"targets": [":target"], "documents": [], "messages": []},
+            "produces": {
+                "targets": [],
+                "documents": ["reddit:user", "reddit:post"],
+                "messages": [],
+            },
+            "capabilities": ["http", "rabbitmq"],
+            "operatorVisible": True,
+            "provenance": {"sourcePackage": "starintel-pro-actors"},
+            "status": "online",
+            "ready": True,
+            "options": [
+                {
+                    "key": "backend",
+                    "description": "arctic-shift or browser",
+                    "required": False,
+                    "schema": {"type": "string", "enum": ["arctic-shift", "browser"]},
+                },
+                {
+                    "key": "limit",
+                    "description": "max documents per run",
+                    "required": False,
+                    "schema": {"type": "integer", "minimum": 1},
+                },
+            ],
+        },
+        {
+            "resourceUri": "star://actor/starintel-labs/watchlist",
+            "resourceKind": "actor",
+            "semantic": {"name": "watchlist", "version": "0.4.1", "digest": "sha256:def"},
+            "accepts": {"targets": [], "documents": [":document"], "messages": []},
+            "produces": {"targets": [], "documents": [":alert"], "messages": []},
+            "capabilities": ["document-stream"],
+            "operatorVisible": True,
+            "provenance": {"sourcePackage": "starintel-pro-actors"},
+            "status": "unavailable",
+            "ready": False,
+            "observedAt": "2026-11-04T00:00:00Z",
+        },
+        {
+            "resourceUri": "star://actor/starintel-labs/telegram",
+            "resourceKind": "actor",
+            "semantic": {"name": "telegram", "version": "2.0.0", "digest": "sha256:789"},
+            "accepts": {"targets": [":target"], "documents": [], "messages": []},
+            "produces": {"targets": [], "documents": ["telegram:message"], "messages": []},
+            "capabilities": ["http"],
+            "operatorVisible": True,
+            "provenance": {"sourcePackage": "starintel-pro-actors"},
+            "status": "online",
+            "ready": True,
+        },
+    ]
+    return {
+        "status": "ok",
+        "data": {
+            "schema": "starintel-actor-registry-v1",
+            "actors": actors,
+            "count": len(actors),
+        },
+    }
+
+
 def fixture_manifest() -> dict[str, Any]:
     """The 16 currently-contracted operations, exactly as the server emits."""
     operations = [
@@ -484,23 +566,33 @@ class MockStarIntelHandler(http.server.BaseHTTPRequestHandler):
             return
         if path == "/openapi.json":
             manifest = fixture_manifest()
+            extra_ops: list[dict[str, Any]] = []
             if getattr(self.server, "serve_document_ops", False):
+                extra_ops.extend(_document_ops())
+            if getattr(self.server, "serve_actor_ops", False):
+                extra_ops.extend(_actor_ops())
+            if extra_ops:
                 manifest = dict(manifest)
-                manifest["operations"] = [
-                    *(manifest["operations"]),
-                    *_document_ops(),
-                ]
+                manifest["operations"] = [*(manifest["operations"]), *extra_ops]
             self._send_json(200, fixture_openapi(manifest), cid)
             return
         if path == "/client-manifest.json":
             manifest = fixture_manifest()
+            extra: list[dict[str, Any]] = []
             if getattr(self.server, "serve_document_ops", False):
+                extra.extend(_document_ops())
+            if getattr(self.server, "serve_actor_ops", False):
+                extra.extend(_actor_ops())
+            if extra:
                 manifest = dict(manifest)
-                manifest["operations"] = [
-                    *(manifest["operations"]),
-                    *_document_ops(),
-                ]
+                manifest["operations"] = [*(manifest["operations"]), *extra]
             self._send_json(200, manifest, cid)
+            return
+        if path == "/v1/actors":
+            if not self._bearer():
+                self._error(401, "Authentication required.", "auth_required")
+                return
+            self._send_json(200, fixture_actor_registry(), cid)
             return
         if path == "/auth/context":
             if not self._bearer():
@@ -686,6 +778,7 @@ class MockStarIntelServer(http.server.ThreadingHTTPServer):
         self.attempt_counts: dict[tuple[str, str], int] = {}
         self.cid_counter = [0]
         self.serve_document_ops = False
+        self.serve_actor_ops = False
 
     @property
     def base_url(self) -> str:
@@ -698,6 +791,13 @@ class MockStarIntelServer(http.server.ThreadingHTTPServer):
 
     def disable_document_ops(self) -> None:
         self.serve_document_ops = False
+
+    def enable_actor_ops(self) -> None:
+        """Serve a manifest that includes the actors.list operation."""
+        self.serve_actor_ops = True
+
+    def disable_actor_ops(self) -> None:
+        self.serve_actor_ops = False
 
 
 def make_server() -> tuple[MockStarIntelServer, str]:

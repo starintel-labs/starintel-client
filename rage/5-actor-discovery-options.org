@@ -1,0 +1,43 @@
+* Run identity
+- Consumed issue :: #5
+- Branch :: =rage/5-actor-discovery-options=
+- RAGE start commit :: =ad48cfc41993412657a54f8853220e1f09ba69f5=
+
+* Analyze (2026-11-04)
+Verified in current source:
+- starintel-server contracts =actors.list= (GET /v1/actors,
+  source/frontends/http-actor-discovery.lisp) returning the
+  =starintel-actor-registry-v1= envelope {status, data:{schema, actors, count}}
+  (source/actor-registry.lisp :: actor-registry-document). Each actor entry:
+  resourceUri, resourceKind, semantic{name,version,digest},
+  accepts/produces{targets,documents,messages}, capabilities,
+  operatorVisible, provenance{sourcePackage}, status, ready, observedAt?.
+- The registry manifest has NO options advertisement (server gap filed as
+  starintel-server#40). Pro-actors target CLIs accept KEY=JSON options
+  (build_target_request) with no machine-readable hints.
+- starintel-client has zero actors.list support.
+
+* Design
+- New =_actors.py=: ActorOption (key, description, required, schema),
+  ActorContract (targets/documents/messages), ActorDescription,
+  ActorRegistry, parse_actor_registry(). Strict validation of known fields;
+  =options= parsed strictly when present (server#40 forward-compat), absent
+  -> empty tuple. Duplicate option keys are errors.
+- list_actors() on StarIntelClient + AsyncStarIntelClient dispatching through
+  call("actors.list") — never a hardcoded route; missing registry operation
+  raises UnknownOperationError naturally.
+- Mock server: actors.list op + registry fixture (one actor with options,
+  one without, one not-ready).
+- README documents discovery + hints.
+
+* Adversarial review
+- Older registry without options must parse (optional field). OK.
+- Envelope shape mismatch / non-ok status / wrong schema string -> ValueError
+  (deterministic, testable). OK.
+- Path never hardcoded; dispatch goes through the validated manifest. OK.
+- count disagreement with actors length -> error (registry integrity). OK.
+- observedAt/correlation_id optional and ignored by models. OK.
+
+* Decision (Auto-RAGE)
+Implement the design above; smallest slice, TDD. Blocked remainder
+(server-side options advertisement) tracked in starintel-server#40.
