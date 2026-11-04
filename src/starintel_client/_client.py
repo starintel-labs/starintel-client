@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from ._actors import ActorDescription, parse_actor_registry
 from ._correlation import new_correlation_id, validate_correlation_id
 from ._errors import ManifestError, UnknownOperationError
 from ._manifest import (
@@ -277,6 +278,18 @@ class StarIntelClient(_RegistryMixin):
 
     def fetch_openapi_document(self, *, correlation_id: str | None = None) -> ApiResponse:
         return self.call("schema.openapi.get", correlation_id=correlation_id)
+
+    def list_actors(self, *, correlation_id: str | None = None) -> list[ActorDescription]:
+        """List the self-describing actor catalog via ``actors.list``.
+
+        Each actor advertises its semantic identity, accepts/produces
+        contracts, capabilities, runtime status, and (when the server
+        provides them) target-option hints. Raises
+        :class:`UnknownOperationError` when the server's registry does not
+        contract ``actors.list``.
+        """
+        response = self.call("actors.list", correlation_id=correlation_id)
+        return list(parse_actor_registry(response.data).actors)
 
     def login(
         self,
@@ -560,6 +573,13 @@ class AsyncStarIntelClient(_RegistryMixin):
 
     async def fetch_openapi_document(self, *, correlation_id: str | None = None) -> ApiResponse:
         return await self.call("schema.openapi.get", correlation_id=correlation_id)
+
+    async def list_actors(
+        self, *, correlation_id: str | None = None
+    ) -> list[ActorDescription]:
+        """List the self-describing actor catalog via ``actors.list``."""
+        response = await self.call("actors.list", correlation_id=correlation_id)
+        return list(parse_actor_registry(response.data).actors)
 
     async def login(
         self,
